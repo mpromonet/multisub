@@ -1,15 +1,16 @@
 extern crate redis;
 use redis::Commands;
 
-fn connect() -> redis::Connection {
-    redis::Client::open("redis://127.0.0.1/")
+fn connect(url: &str) -> redis::Connection {
+    redis::Client::open(url)
         .expect("Invalid connection URL")
         .get_connection()
         .expect("failed to connect to Redis")
 }
 
 fn main() {
-    let mut con = connect();
+    let url = "redis://127.0.0.1/";
+    let mut con = connect(url);
     let _: () = con.set("my_key", 42)
                     .expect("SET failed");
     let _: () = con.incr("my_key", 2)
@@ -28,7 +29,8 @@ fn main() {
                     .query(&mut con)
                     .expect("CONFIG failed");
 
-    let mut pubsub = con.as_pubsub();
+    let mut subcon = connect(url);
+    let mut pubsub = subcon.as_pubsub();
     let _ = pubsub.psubscribe("__key*__:my_key");
 
     loop {
@@ -36,6 +38,9 @@ fn main() {
         let payload : String = msg.get_payload().expect("GET PAYLOAD failed");
         println!("channel '{}': {}", msg.get_channel_name(), payload);
         let strings: Vec<&str> = msg.get_channel_name().split(":").collect();
-        println!("key '{}'", strings[strings.len()-1]);
+        let key = strings[strings.len()-1];
+        let count: i32 = con.ttl(key)
+            .expect("ttl failed");
+        println!("ttl {} = {}", key, count);
     }
 }
