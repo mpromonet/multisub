@@ -35,5 +35,7 @@ fn main() {
         let msg = pubsub.get_message().expect("GET MESSAGE failed");
         let payload : String = msg.get_payload().expect("GET PAYLOAD failed");
         println!("channel '{}': {}", msg.get_channel_name(), payload);
+        let strings: Vec<&str> = msg.get_channel_name().split(":").collect();
+        println!("key '{}'", strings[strings.len()-1]);
     }
 }
