@@ -1,5 +1,6 @@
 extern crate redis;
 use redis::Commands;
+use std::env;
 
 fn connect(url: &str) -> redis::Connection {
     redis::Client::open(url)
@@ -9,7 +10,12 @@ fn connect(url: &str) -> redis::Connection {
 }
 
 fn main() {
-    let url = "redis://127.0.0.1/";
+    let mut url = "redis://127.0.0.1/";
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        url = &args[1];
+    }
+
     let mut con = connect(url);
     let _: () = con.set("my_key", 42)
                     .expect("SET failed");
@@ -37,10 +43,18 @@ fn main() {
         let msg = pubsub.get_message().expect("GET MESSAGE failed");
         let payload : String = msg.get_payload().expect("GET PAYLOAD failed");
         println!("channel '{}': {}", msg.get_channel_name(), payload);
+        // get key name
         let strings: Vec<&str> = msg.get_channel_name().split(":").collect();
         let key = strings[strings.len()-1];
-        let count: i32 = con.ttl(key)
-            .expect("ttl failed");
-        println!("ttl {} = {}", key, count);
+
+        let res: Result<i32, redis::RedisError> = con.get(key);
+        // print value
+        match res {
+            Ok(count) => println!("{} = {}", key, count),
+            Err(error) => println!("{} = {}", key, error.category()),
+        }
+        // print ttl
+        let ttl: i32 = con.ttl(key).expect("ttl failed");
+        println!("{} ({})", key, ttl);
     }
 }
