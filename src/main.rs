@@ -11,7 +11,8 @@ fn connect(url: &str) -> redis::Connection {
         .expect("failed to connect to Redis")
 }
 
-fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection, key: &str) -> ! {
+fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection, key: &str)  {
+    let hostname = hostname::get().unwrap().into_string().unwrap();
     let mut pubsub = subcon.as_pubsub();
     let _ = pubsub.psubscribe(format!("__key*__:{}", key));
     let _ = pubsub.set_read_timeout(Some(Duration::from_millis(5000)));
@@ -19,10 +20,6 @@ fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection,
     loop {
 
         let res = pubsub.get_message();
-
-        // renew
-        let _: i32 = readcon.pexpire("leader", 10000).unwrap();
-
         match res {
             Ok(msg) => {
                 let payload: String = msg.get_payload().unwrap();
@@ -31,18 +28,26 @@ fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection,
                 let strings: Vec<&str> = msg.get_channel_name().split(":").collect();
                 let key = strings[strings.len()-1];
         
+                let ttl: i32 = readcon.ttl(key).unwrap();
                 let res: Result<i32, redis::RedisError> = readcon.get(key);
                 // print value
                 match res {
-                    Ok(count) => println!("{} = {}", key, count),
-                    Err(error) => println!("{} = {}", key, error.category()),
+                    Ok(count) => println!("{} = {} ({})", key, count, ttl),
+                    Err(error) => println!("{} = {} ({})", key, error.category(), ttl),
                 }
-                // print ttl
-                let ttl: i32 = readcon.ttl(key).unwrap();
-                println!("{} ({})", key, ttl);
             },
-            Err(error) => println!("{} = {}", key, error.category()),
+            Err(_) => {},
         }
+
+        // check if we are still leader
+        let leader : String = readcon.get("leader").unwrap();
+        if leader != hostname {
+            println!("not leader");
+            break;
+        }
+        
+        // renew
+        let _: i32 = readcon.pexpire("leader", 10000).unwrap();
     }
 }
 
