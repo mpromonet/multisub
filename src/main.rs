@@ -1,6 +1,7 @@
 extern crate redis;
 use redis::Commands;
 use std::env;
+use std::{thread, time::Duration};
 
 extern crate hostname;
 
@@ -53,6 +54,7 @@ fn main() {
         url = &args[1];
     }
 
+    // write something
     let mut con = connect(url);
     let _: () = con.set("my_key", 42).unwrap();
     let _: () = con.expire("my_key", 10).unwrap();
@@ -60,23 +62,29 @@ fn main() {
     let count: i32 = con.get("my_key").unwrap();
     println!("my_key = {}", count);
 
-    let _ : () = redis::cmd("CONFIG")
-                    .arg("SET")
-                    .arg("notify-keyspace-events")
-                    .arg("KEA")
-                    .query(&mut con)
-                    .unwrap();
  
-    let res = elect(con);
-    match res {
-        Ok(redis::Value::Okay) => {
-            println!("leader");
-            let readcon = connect(url);
-            let subcon = connect(url);
-            subscribetokey(readcon, subcon, "my_key");
-        },
-        _ => println!("leader failed"),
-    }
+    loop {
+        let mut con = connect(url);
+        let _ : () = redis::cmd("CONFIG")
+        .arg("SET")
+        .arg("notify-keyspace-events")
+        .arg("KEA")
+        .query(&mut con)
+        .unwrap();
 
+        let res = elect(con);
+        match res {
+            Ok(redis::Value::Okay) => {
+                println!("leader");
+                let readcon = connect(url);
+                let subcon = connect(url);
+                subscribetokey(readcon, subcon, "my_key");
+            },
+            _ => {
+                println!("leader failed");
+                thread::sleep(Duration::from_millis(5000));
+            }
+        }    
+    }
 
 }
