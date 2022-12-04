@@ -11,8 +11,7 @@ fn connect(url: &str) -> redis::Connection {
         .expect("failed to connect to Redis")
 }
 
-fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection, key: &str)  {
-    let hostname = hostname::get().unwrap().into_string().unwrap();
+fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection, key: &str, leaderkey: &str, hostname: &str)  {
     let mut pubsub = subcon.as_pubsub();
     let _ = pubsub.psubscribe(format!("__key*__:{}", key));
     let _ = pubsub.set_read_timeout(Some(Duration::from_millis(5000)));
@@ -40,22 +39,20 @@ fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection,
         }
 
         // check if we are still leader
-        let leader : String = readcon.get("leader").unwrap();
+        let leader : String = readcon.get(leaderkey).unwrap();
         if leader != hostname {
             println!("not leader");
             break;
         }
         
         // renew
-        let _: i32 = readcon.pexpire("leader", 10000).unwrap();
+        let _: i32 = readcon.pexpire(leaderkey, 10000).unwrap();
     }
 }
 
-fn elect(mut con: redis::Connection) -> Result<redis::Value, redis::RedisError> {
-    let hostname = hostname::get().unwrap().into_string().unwrap();
-    println!("Hostname: {:?}", hostname);
+fn elect(mut con: redis::Connection, leaderkey: &str, hostname: &str) -> Result<redis::Value, redis::RedisError> {
      redis::cmd("SET")
-    .arg("leader")
+    .arg(leaderkey)
     .arg(hostname)
     .arg("PX")
     .arg(10000)
@@ -64,6 +61,8 @@ fn elect(mut con: redis::Connection) -> Result<redis::Value, redis::RedisError> 
 
 fn main() {
     let mut url = "redis://127.0.0.1/";
+    let leaderkey: &str = "leader";
+    let keyname: &str = "my_key";
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         url = &args[1];
@@ -71,13 +70,14 @@ fn main() {
 
     // write something
     let mut con = connect(url);
-    let _: () = con.set("my_key", 42).unwrap();
-    let _: () = con.expire("my_key", 10).unwrap();
+    let _: () = con.set_ex(keyname, 42, 10).unwrap();
 
-    let count: i32 = con.get("my_key").unwrap();
-    println!("my_key = {}", count);
+    let count: i32 = con.get(keyname).unwrap();
+    println!("{} = {}", keyname, count);
 
- 
+    let hostname = hostname::get().unwrap().into_string().unwrap();
+    println!("Hostname: {:?}", hostname);
+        
     loop {
         let mut con = connect(url);
         let _ : () = redis::cmd("CONFIG")
@@ -87,13 +87,13 @@ fn main() {
         .query(&mut con)
         .unwrap();
 
-        let res = elect(con);
+        let res = elect(con, leaderkey, &hostname);
         match res {
             Ok(redis::Value::Okay) => {
                 println!("leader");
                 let readcon = connect(url);
                 let subcon = connect(url);
-                subscribetokey(readcon, subcon, "my_key");
+                subscribetokey(readcon, subcon, keyname, leaderkey, &hostname);
             },
             _ => {
                 println!("leader failed");
