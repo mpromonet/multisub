@@ -35,19 +35,15 @@ fn subscribetokey(mut readcon: redis::Connection, mut subcon: redis::Connection,
     }
 }
 
-fn elect(mut con: redis::Connection) {
+fn elect(mut con: redis::Connection) -> Result<redis::Value, redis::RedisError> {
     let hostname = hostname::get().unwrap().into_string().unwrap();
     println!("Hostname: {:?}", hostname);
-    let res: Result<redis::Value, redis::RedisError> = redis::cmd("SET")
+     redis::cmd("SET")
     .arg("leader")
     .arg(hostname)
     .arg("PX")
     .arg(30000)
-    .arg("NX").query(&mut con);
-    match res {
-        Ok(redis::Value::Okay) => println!("leader"),
-        _ => println!("leader failed"),
-    }
+    .arg("NX").query(&mut con)
 }
 
 fn main() {
@@ -71,10 +67,16 @@ fn main() {
                     .query(&mut con)
                     .unwrap();
  
-    elect(con);
+    let res = elect(con);
+    match res {
+        Ok(redis::Value::Okay) => {
+            println!("leader");
+            let readcon = connect(url);
+            let subcon = connect(url);
+            subscribetokey(readcon, subcon, "my_key");
+        },
+        _ => println!("leader failed"),
+    }
 
-    let readcon = connect(url);
-    let subcon = connect(url);
-    subscribetokey(readcon, subcon, "my_key");
 
 }
